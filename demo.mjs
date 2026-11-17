@@ -4,6 +4,7 @@
 // usage: docker compose up -d --wait && node demo.mjs      (Node 24+, no dependencies)
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 
 const HOOKRELAY = 'http://localhost:3000', FLAGSHIP = 'http://localhost:4000', NIMBUS = 'http://localhost:8080';
 const ADMIN = process.env.ADMIN_TOKEN ?? 'change-me';
@@ -122,5 +123,6 @@ console.log('   Hookrelay messages:', messages.data.map((m) => `${m.eventType} (
 console.log('   Flagship audit:   ', (await flagship('GET', `/api/flags/${flagKey}/audit`)).map((a) => a.action.split(':')[0].replace(/ [0-9a-f-]{36}/, '')).reverse().join(' -> '));
 // Optional: set HOOKRELAY_API_KEY in .env and Flagship also publishes every flag change as flag.* events.
 
+writeFileSync('.demo-state.json', JSON.stringify({ hookrelayApiKey: app.apiKey, flagKey, incidentId: incident.id, pipelineId: pipeline.id, messageId: messages.data.at(-1).id }, null, 2)); // handy for exploring the dashboards afterwards
 console.log('\nAll assertions passed.');
 process.exit(0);

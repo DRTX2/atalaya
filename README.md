@@ -2,6 +2,8 @@
 
 **A developer infrastructure platform made of three independent products that work together.** *Atalaya* is Spanish for watchtower.
 
+![Nimbus detects, Flagship mitigates, Hookrelay notifies](docs/img/cover.webp)
+
 | Product | Problem it solves | Stack | Repo |
 |---|---|---|---|
 | **Hookrelay** | Deliver events to customer systems reliably: signatures, retries, dead-letter queue, replay | NestJS, BullMQ, PostgreSQL, Redis, Next.js | [DRTX2/hookrelay](https://github.com/DRTX2/hookrelay) |
