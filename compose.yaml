@@ -1,0 +1,93 @@
+# Atalaya: the three products running together on one network.
+# Expects the product repos checked out next to this one: ../hookrelay ../flagship ../nimbus
+name: atalaya
+
+x-secret: &secret
+  NIMBUS_WEBHOOK_SECRET: ${NIMBUS_WEBHOOK_SECRET:-atalaya-local-shared-secret}
+
+services:
+  # ---------------------------------------------------------------- Hookrelay (event delivery)
+  hookrelay-postgres:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: hookrelay, POSTGRES_PASSWORD: hookrelay, POSTGRES_DB: hookrelay }
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "hookrelay"], interval: 2s, retries: 30 }
+  hookrelay-redis:
+    image: redis:8-alpine
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 2s, retries: 30 }
+  hookrelay-api: &hookrelay
+    build: { context: ../hookrelay, dockerfile: apps/api/Dockerfile }
+    image: atalaya-hookrelay:local
+    environment:
+      <<: *secret
+      DATABASE_URL: postgres://hookrelay:hookrelay@hookrelay-postgres:5432/hookrelay
+      REDIS_URL: redis://hookrelay-redis:6379
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
+      ALLOW_PRIVATE_TARGETS: "true" # demo: the receiver lives on this Docker network
+      RETRY_SCHEDULE: "2,5,15"
+      LOG_FORMAT: json
+    ports: ["3000:3000"]
+    depends_on: { hookrelay-postgres: { condition: service_healthy }, hookrelay-redis: { condition: service_healthy } }
+  hookrelay-worker:
+    <<: *hookrelay
+    build: !reset null
+    pull_policy: never
+    command: ["node", "dist/worker.js"]
+    ports: []
+    depends_on: [hookrelay-api]
+
+  # ---------------------------------------------------------------- Flagship (feature management)
+  flagship-postgres:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: flagship, POSTGRES_PASSWORD: flagship, POSTGRES_DB: flagship }
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "flagship"], interval: 2s, retries: 30 }
+  flagship:
+    build: ../flagship
+    environment:
+      <<: *secret
+      DATABASE_URL: postgres://flagship:flagship@flagship-postgres:5432/flagship
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
+      LOG_FORMAT: json
+      # flag changes are published to Hookrelay; the demo script writes the key into .env
+      HOOKRELAY_URL: http://hookrelay-api:3000
+      HOOKRELAY_API_KEY: ${HOOKRELAY_API_KEY:-}
+    ports: ["4000:4000"]
+    depends_on: { flagship-postgres: { condition: service_healthy } }
+
+  # ---------------------------------------------------------------- Nimbus (async pipeline guardian)
+  nimbus-postgres:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: nimbus, POSTGRES_PASSWORD: nimbus, POSTGRES_DB: nimbus }
+    volumes: ["../nimbus/deploy/postgres/init-runtime-roles.sql:/docker-entrypoint-initdb.d/10-runtime-roles.sql:ro"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U nimbus -d nimbus"], interval: 2s, retries: 30 }
+  nimbus-migrate:
+    build: ../nimbus
+    image: atalaya-nimbus:local
+    environment: &nimbus-env
+      NIMBUS_ENV: development
+      NIMBUS_COMPONENT: migrate
+      NIMBUS_DATABASE_URL: postgres://nimbus:nimbus@nimbus-postgres:5432/nimbus?sslmode=disable
+      NIMBUS_API_KEY: ${NIMBUS_API_KEY:-nimbus-local-development-key}
+      NIMBUS_TENANT_ID: 00000000-0000-0000-0000-000000000001
+      NIMBUS_TENANT_NAME: Atalaya Local
+    depends_on: { nimbus-postgres: { condition: service_healthy } }
+    restart: "no"
+  nimbus:
+    image: atalaya-nimbus:local
+    pull_policy: never
+    environment:
+      <<: [*nimbus-env, *secret]
+      NIMBUS_COMPONENT: all
+      NIMBUS_HTTP_ADDRESS: :8080
+      NIMBUS_WORKER_COUNT: 2
+      # Nimbus blocks private destinations by default; only its two sibling products are allowed.
+      NIMBUS_OUTBOUND_ALLOWED_HOSTS: flagship,hookrelay-api
+    ports: ["8080:8080"]
+    depends_on: { nimbus-migrate: { condition: service_completed_successfully } }
+
+  # ---------------------------------------------------------------- A customer system receiving webhooks
+  receiver:
+    image: node:24-alpine
+    working_dir: /app
+    volumes: ["../hookrelay/examples/receiver:/app:ro"]
+    command: ["node", "server.js"]
+    environment: { FAIL_RATE: "0" }
