@@ -1,0 +1,61 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0}
+body{width:1100px;height:1500px;background:#0d1726;color:#e8edf4;font-family:Inter,"Segoe UI",system-ui,sans-serif;position:relative;overflow:hidden}
+body::before{content:'';position:absolute;inset:0;background-image:radial-gradient(#243852 1.2px,transparent 1.2px);background-size:28px 28px;opacity:.55}
+.glow{position:absolute;border-radius:50%;filter:blur(130px)}
+.g1{width:820px;height:820px;background:#f3b43f;opacity:.13;top:-420px;right:-260px}
+.g2{width:900px;height:900px;background:#3b6fd6;opacity:.14;bottom:-520px;left:-320px}
+header{position:absolute;top:64px;left:72px;right:72px}
+h1{font-size:64px;font-weight:800;letter-spacing:-.02em;line-height:1}
+h1 span{color:#f3b43f}
+.sub{margin-top:12px;color:#9aa9bd;font-size:21px}
+.loop{display:flex;gap:10px;margin-top:26px;font:600 17px ui-monospace,Menlo,monospace}
+.loop span{padding:8px 13px;border:1px solid #34506f;border-radius:999px;color:#c9d4e3;background:#132136}
+.loop span.on{border-color:#f3b43f;color:#f5c064}
+.grid{position:absolute;top:318px;left:72px;right:72px;display:grid;gap:40px}
+.tile{position:relative;background:#132136;border:1px solid #2b4262;border-radius:18px;padding:26px 28px 24px;box-shadow:0 30px 60px -30px rgba(0,0,0,.7);height:232px;display:flex;flex-direction:column;padding:20px 26px}
+.top{display:flex;align-items:center;gap:14px}
+.n{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:#f3b43f;color:#1a1204;font-weight:800;font-size:19px}
+.name{font-size:30px;font-weight:800}
+.role{margin-left:auto;font:600 15px ui-monospace,Menlo,monospace;color:#f5c064;text-transform:uppercase;letter-spacing:.08em}
+.what{margin:8px 0 12px;color:#9aa9bd;font-size:17.5px;line-height:1.45}
+.term{background:#0b1220;border:1px solid #22344d;border-radius:12px;padding:14px 16px;font:15px/1.65 ui-monospace,Menlo,monospace;color:#c9d4e3;overflow:hidden}
+.term .k{color:#7f97b5}.term .ok{color:#3ecf8e}.term .bad{color:#f26d6d}.term .am{color:#f5c064}
+.stack{position:absolute;top:24px;right:150px;margin:0;display:flex;flex-wrap:wrap;gap:7px}
+.stack span{font-size:13.5px;padding:4px 9px;border-radius:6px;background:#1a2b44;color:#c9d4e3;border:1px solid #2b4262}
+svg{position:absolute;inset:0;pointer-events:none}
+.foot{position:absolute;bottom:44px;left:72px;right:72px;color:#7f97b5;font:16px/1.5 ui-monospace,Menlo,monospace}
+.foot b{color:#c9d4e3;font-weight:600}
+</style></head><body><div class="glow g1"></div><div class="glow g2"></div>
+<header>
+  <div><h1>Atalaya<span>.</span></h1><div class="sub">Four independent products. One incident, handled end to end.</div></div>
+  <div class="loop"><span class="on">detect</span><span class="on">mitigate</span><span class="on">notify</span><span class="on">recover</span><span class="on">learn</span></div>
+</header>
+<svg width="1100" height="1500" viewBox="0 0 1100 1500">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#f3b43f"/></marker></defs>
+  <g stroke="#f3b43f" stroke-width="2.5" fill="none" marker-end="url(#a)">
+    <path d="M550 552 V586"/>
+    <path d="M550 824 V858"/>
+    <path d="M550 1096 V1130"/>
+  </g>
+</svg>
+<div class="grid">
+  <div class="tile"><div class="top"><div class="n">1</div><div class="name">Nimbus</div><div class="role">detect</div></div>
+    <div class="what">Watches AWS async pipelines and runs a governed response workflow.</div>
+    <div class="term"><span class="k">pipeline</span> orders · backlog <span class="bad">200</span> · invocations <span class="bad">0</span><br><span class="k">incident</span> <span class="am">consumer_stalled</span> opened<br><span class="k">workflow</span> kill switch → notify <span class="ok">✓</span></div>
+    <div class="stack"><span>Go</span><span>PostgreSQL</span><span>React</span><span>SQS · Lambda</span></div></div>
+  <div class="tile"><div class="top"><div class="n">2</div><div class="name">Flagship</div><div class="role">mitigate</div></div>
+    <div class="what">Feature flags with local evaluation; kill switches pushed to every SDK.</div>
+    <div class="term"><span class="k">orders-v2</span> production <span class="bad">OFF</span><br><span class="k">actor</span> nimbus (automation) · audited<br><span class="k">SDKs</span> safe path in <span class="ok">680 ms</span> · restored on recovery</div>
+    <div class="stack"><span>NestJS</span><span>Angular</span><span>SSE SDK</span><span>LISTEN/NOTIFY</span></div></div>
+  <div class="tile"><div class="top"><div class="n">3</div><div class="name">Hookrelay</div><div class="role">notify</div></div>
+    <div class="what">Reliable webhooks: Standard Webhooks signatures, retries, DLQ and replay.</div>
+    <div class="term"><span class="k">incident.opened</span> → on-call <span class="ok">200</span> in 34 ms<br><span class="k">incident.opened</span> → Bitácora <span class="ok">200</span><br><span class="k">idempotency</span> nimbus:&lt;incident&gt;:opened</div>
+    <div class="stack"><span>NestJS</span><span>BullMQ · Redis</span><span>PostgreSQL</span><span>Next.js</span></div></div>
+  <div class="tile"><div class="top"><div class="n">4</div><div class="name">Bitácora</div><div class="role">learn</div></div>
+    <div class="what">Rebuilds each incident's timeline, measures the response, drafts the postmortem.</div>
+    <div class="term"><span class="k">timeline</span> opened → killed → recovered → restored<br><span class="k">mitigated</span> in <span class="ok">677 ms</span> · restored 608 ms after recovery<br><span class="k">postmortem</span> drafted <span class="ok">✓</span></div>
+    <div class="stack"><span>AWS Lambda</span><span>DynamoDB</span><span>API Gateway</span><span>Terraform</span></div></div>
+</div>
+<div class="foot"><b>HMAC-signed, idempotent HTTP</b> between products · each one with its own repo, database, tests and Terraform for AWS</div>
+</body></html>
