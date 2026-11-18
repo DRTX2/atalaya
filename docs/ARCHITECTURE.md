@@ -15,12 +15,16 @@ flowchart LR
   end
   W -- "signed HTTP step" --> A
   W -- "signed HTTP step" --> IN
-  FS -. "optional: flag.* events" .-> ING
+  FS -. "flag.* events" .-> ING
   SSE --> SDK[SDKs in customer services]
   Q --> EXT[Customer endpoints]
+  subgraph Bitacora[Bitácora · Lambda + DynamoDB]
+    BI[ingest λ] --> BT[(timeline, metrics)] --> BP[postmortem]
+  end
+  Q -- "Standard Webhooks" --> BI
 ```
 
-Three codebases, three PostgreSQL databases (plus Redis for Hookrelay), one Docker network in `compose.yaml`. Nothing is shared except a signing secret.
+Four codebases, three PostgreSQL databases (plus Redis for Hookrelay) and one DynamoDB table, one Docker network in `compose.yaml`. Nothing is shared except a signing secret; `bootstrap.mjs` does the one-time wiring an operator would do (tenant, API key, subscription).
 
 ## Integration contracts
 
@@ -40,6 +44,12 @@ Three codebases, three PostgreSQL databases (plus Redis for Hookrelay), one Dock
 - After each committed flag change: `flag.created | flag.updated | flag.archived`, bearer API key, idempotency key `flagship:<type>:<flag>:<env>:<version>`.
 - Fire-and-forget after COMMIT with a 3 s timeout. Never blocks or fails a flag change.
 
+### Hookrelay → Bitácora: `POST /webhooks/hookrelay/{sourceId}`
+- An ordinary Hookrelay endpoint subscribed to `incident.*` and `flag.*`. Bitácora verifies the Standard Webhooks signature (5-minute replay window) and deduplicates by `webhook-id`.
+- Correlation: Flagship's kill audit text `killed by nimbus incident <id>` with actor `nimbus (automation)` links the flag to the incident; the automation's `rolled back to #…` on that flag is the restore; anyone else's change during the incident is recorded as manual.
+- Incident times come from Nimbus' `occurredAt` (the notify step runs after the flag step, so delivery time would put "opened" after "mitigated").
+- Order-independent and idempotent: a kill that arrives before its incident, or a redelivery, produces the same timeline.
+
 ## Failure modes
 
 | Failure | What happens |
@@ -49,6 +59,8 @@ Three codebases, three PostgreSQL databases (plus Redis for Hookrelay), one Dock
 | Nimbus retries a step that already succeeded | Flagship answers `changed: false`; Hookrelay answers `duplicate: true`. No double effects |
 | An engineer edits the flag during the incident | On recovery Flagship leaves it alone and says why |
 | Customer endpoint down | Hookrelay retries, then parks the delivery in the DLQ for replay |
+| Bitácora down or throttled | Hookrelay retries its deliveries like any endpoint (DLQ + replay after that). Nothing else is affected |
+| Bitácora loses its data (local DynamoDB recreated) | `bootstrap.mjs` reconnects a new source to the same tenant, so Flagship keeps its key |
 | Signing secret leaked | Rotate: all three accept a previous secret during the overlap (`v1` list / `NIMBUS_WEBHOOK_PREVIOUS_SECRET`) |
 | Forged or replayed request | 401: bad signature or timestamp outside the window |
 
@@ -58,4 +70,4 @@ Three codebases, three PostgreSQL databases (plus Redis for Hookrelay), one Dock
 - A merged codebase would turn three clear products into one unclear one, and every release would become a coordinated release.
 
 ## Running in AWS
-Each product deploys on its own (ECS Fargate + RDS; Terraform in each repo). To connect them, expose the two automation endpoints through each product's ALB, set the same `NIMBUS_WEBHOOK_SECRET` in the three secret stores, and add the Flagship and Hookrelay hostnames to Nimbus' `NIMBUS_OUTBOUND_ALLOWED_HOSTS`.
+Each product deploys on its own (ECS Fargate + RDS for Hookrelay, Flagship and Nimbus; Lambda + DynamoDB for Bitácora; Terraform in each repo). To connect them, expose the two automation endpoints through each product's ALB, set the same `NIMBUS_WEBHOOK_SECRET` in the three secret stores, and add the Flagship and Hookrelay hostnames to Nimbus' `NIMBUS_OUTBOUND_ALLOWED_HOSTS`.

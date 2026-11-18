@@ -1,16 +1,17 @@
 # Atalaya
 
-**A developer infrastructure platform made of three independent products that work together.** *Atalaya* is Spanish for watchtower.
+**A developer infrastructure platform made of four independent products that work together.** *Atalaya* is Spanish for watchtower.
 
-![Nimbus detects, Flagship mitigates, Hookrelay notifies](docs/img/cover.webp)
+![Nimbus detects, Flagship mitigates, Hookrelay notifies, Bitácora records](docs/img/cover.webp)
 
 | Product | Problem it solves | Stack | Repo |
 |---|---|---|---|
 | **Hookrelay** | Deliver events to customer systems reliably: signatures, retries, dead-letter queue, replay | NestJS, BullMQ, PostgreSQL, Redis, Next.js | [DRTX2/hookrelay](https://github.com/DRTX2/hookrelay) |
 | **Flagship** | Control who gets which behaviour, changed live: targeting, rollouts, kill switches, local evaluation | NestJS, Angular, TypeScript SDK, PostgreSQL | [DRTX2/flagship](https://github.com/DRTX2/flagship) |
 | **Nimbus** | Detect and explain failures in AWS async pipelines (SQS, Lambda, DLQ) and run a governed response | Go, PostgreSQL, React | [DRTX2/nimbus](https://github.com/DRTX2/nimbus) |
+| **Bitácora** | Rebuild each incident's timeline from the webhooks, measure the response, draft the postmortem | AWS Lambda, DynamoDB, API Gateway, TypeScript | [DRTX2/bitacora](https://github.com/DRTX2/bitacora) |
 
-Each product has its own repository, database, pipeline and release cycle, and each is useful alone. Together they close a loop that teams usually wire by hand: **detect → mitigate → notify → recover**.
+Each product has its own repository, database, pipeline and release cycle, and each is useful alone. Together they close a loop that teams usually wire by hand: **detect → mitigate → notify → recover → learn**.
 
 ## The scenario (runs locally, asserted end to end)
 
@@ -32,6 +33,9 @@ sequenceDiagram
   N->>F: recovered → flag restored to its pre-incident configuration
   N->>H: recovered
   H-->>C: incident.recovered webhook
+  participant B as Bitácora
+  H-->>B: incident.* and flag.* webhooks (same signed delivery)
+  B->>B: timeline, time to mitigate / recover / restore, postmortem draft
 ```
 
 ```bash
@@ -40,20 +44,28 @@ docker compose up -d --wait
 node demo.mjs          # Node 24+, no dependencies
 ```
 
+`docker compose up` also runs `bootstrap.mjs` once: it creates the platform's Hookrelay tenant, hands its API key to Flagship (through a file, the Docker secrets convention) so flag changes are published, and subscribes Bitácora to `incident.*` and `flag.*`. It is idempotent and repairs only the side that lost its data.
+
 Real output of the last run is in [docs/demo-output.txt](docs/demo-output.txt):
 
 ```
 4. The consumer stalls: two degraded windows (backlog 200, oldest message 10 min, 0 invocations)
    ✓ Nimbus opened incident … (consumer_stalled)
-   ✓ Flagship turned orders-v2 OFF; the SDK saw it 615 ms after the observation
+   ✓ Flagship turned orders-v2 OFF; the SDK saw it 680 ms after the observation
    ✓ audit: "nimbus (automation)" killed by nimbus incident …: Queue backlog is aging while the Lambda consumer has no invocations
    ✓ Hookrelay delivered incident.opened to the customer endpoint (signed, with retries/DLQ behind it)
 5. The consumer recovers: two healthy windows
    ✓ Flagship restored orders-v2 to its pre-incident configuration
    ✓ Hookrelay delivered incident.recovered
+6. Bitácora rebuilt the incident from the webhooks Hookrelay delivered to it
+   ✓ timeline: incident.opened -> flag.killed -> incident.recovered -> flag.restored
+   ✓ metrics: mitigated in 677 ms, recovered in 1.1 s, flag restored 608 ms after recovery
+   ✓ postmortem drafted (saved to docs/postmortem-example.md)
 ```
 
-Dashboards while it runs: Hookrelay API docs <http://localhost:3000/docs> · Flagship <http://localhost:4000> (token `change-me`) · Nimbus <http://localhost:8080/app/>.
+The demo posts the metric windows back to back, so "recovered in 1.1 s" stands for what would be minutes in production. The postmortem Bitácora wrote for that run: [docs/postmortem-example.md](docs/postmortem-example.md).
+
+Dashboards while it runs: Hookrelay API docs <http://localhost:3000/docs> · Flagship <http://localhost:4000> (token `change-me`) · Nimbus <http://localhost:8080/app/> · Bitácora API <http://localhost:8090/incidents> (token `change-me`).
 
 ## How the products are joined (and how they are not)
 
@@ -72,5 +84,5 @@ A shared platform layer (single sign-on, organizations, billing) would come next
 
 ## Status
 - The scenario above passes locally with all three products in Docker.
-- Each integration point is covered in its own repo's test suite (Flagship: signed kill/restore, replay window, human-override rule. Hookrelay: signed inbound, idempotency, delivery).
-- Not deployed to a cloud account yet. Hookrelay and Flagship ship Terraform for AWS ECS; Nimbus ships its own.
+- Each integration point is covered in its own repo's test suite (Flagship: signed kill/restore, replay window, human-override rule, key read from a file. Hookrelay: signed inbound, idempotency, delivery. Nimbus: `occurredAt` on incident events. Bitácora: out-of-order and duplicate deliveries against real DynamoDB).
+- Not deployed to a cloud account yet. Hookrelay and Flagship ship Terraform for AWS ECS, Bitácora for Lambda + DynamoDB; Nimbus ships its own.

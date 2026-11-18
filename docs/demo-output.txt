@@ -1,25 +1,32 @@
 
-1. Hookrelay: tenant + a customer endpoint subscribed to incident events
-   ✓ tenant 667c5d72-5853-4093-a8a8-cc40656f1f66
+1. Hookrelay: the platform tenant (bootstrap) + a customer endpoint subscribed to incident events
+ Container atalaya-bootstrap-run-c9bcfa3cffff Creating 
+ Container atalaya-bootstrap-run-c9bcfa3cffff Created 
+   ✓ tenant 5ed7085a-e89e-4036-857d-38c6ed6a5a06 (endpoints: on-call receiver, Bitácora)
 
 2. Flagship: a risky feature flag, ON in production, with an SDK stream connected
-   ✓ orders-v2-mwk8g5s5 is ON and the SDK sees it
+   ✓ orders-v2-mwlhfong is ON and the SDK sees it
 
 3. Nimbus: response + recovery workflows that call Flagship and Hookrelay (HMAC-signed HTTP steps)
-   ✓ pipeline 6a2e9073-5801-40f4-a0c2-4127a6747855 watched (fixture mode: no AWS account needed)
+   ✓ pipeline ac783ad6-2d70-4a0b-a603-32a45667b437 watched (fixture mode: no AWS account needed)
 
 4. The consumer stalls: two degraded windows (backlog 200, oldest message 10 min, 0 invocations)
-   ✓ Nimbus opened incident dbda7418-4b7f-47cb-985b-39c75459eb52 (consumer_stalled)
-   ✓ Flagship turned orders-v2-mwk8g5s5 OFF; the SDK saw it 875 ms after the observation
-   ✓ audit: "nimbus (automation)" killed by nimbus incident dbda7418-4b7f-47cb-985b-39c75459eb52: Queue backlog is aging while the Lambda consumer has no invocations
+   ✓ Nimbus opened incident c31785b5-0b6a-41a5-8045-401c1e248da8 (consumer_stalled)
+   ✓ Flagship turned orders-v2-mwlhfong OFF; the SDK saw it 680 ms after the observation
+   ✓ audit: "nimbus (automation)" killed by nimbus incident c31785b5-0b6a-41a5-8045-401c1e248da8: Queue backlog is aging while the Lambda consumer has no invocations
    ✓ Hookrelay delivered incident.opened to the customer endpoint (signed, with retries/DLQ behind it)
 
 5. The consumer recovers: two healthy windows
-   ✓ Flagship restored orders-v2-mwk8g5s5 to its pre-incident configuration
+   ✓ Flagship restored orders-v2-mwlhfong to its pre-incident configuration
    ✓ Hookrelay delivered incident.recovered
 
-6. Evidence kept by each product
-   Hookrelay messages: incident.recovered (1/1 delivered), incident.opened (1/1 delivered)
-   Flagship audit:    created -> turned on -> killed by nimbus incident -> rolled back to #11
+6. Bitácora rebuilt the incident from the webhooks Hookrelay delivered to it
+   ✓ timeline: incident.opened -> flag.killed -> incident.recovered -> flag.restored
+   ✓ metrics: mitigated in 677 ms, recovered in 1.1 s, flag restored 608 ms after recovery
+   ✓ postmortem drafted (saved to docs/postmortem-example.md)
+
+7. Evidence kept by each product
+   Hookrelay messages: flag.created (1/1 delivered), flag.updated (1/1 delivered), flag.updated (1/1 delivered), incident.opened (2/2 delivered), flag.updated (1/1 delivered), incident.recovered (2/2 delivered)
+   Flagship audit:    created -> turned on -> killed by nimbus incident -> rolled back to #23
 
 All assertions passed.

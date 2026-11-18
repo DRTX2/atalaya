@@ -1,5 +1,5 @@
-# Atalaya: the three products running together on one network.
-# Expects the product repos checked out next to this one: ../hookrelay ../flagship ../nimbus
+# Atalaya: the four products running together on one network.
+# Expects the product repos checked out next to this one: ../hookrelay ../flagship ../nimbus ../bitacora
 name: atalaya
 
 x-secret: &secret
@@ -47,11 +47,14 @@ services:
       DATABASE_URL: postgres://flagship:flagship@flagship-postgres:5432/flagship
       ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
       LOG_FORMAT: json
-      # flag changes are published to Hookrelay; the demo script writes the key into .env
+      # Flag changes are published to Hookrelay with the platform tenant's key, written by bootstrap.
       HOOKRELAY_URL: http://hookrelay-api:3000
-      HOOKRELAY_API_KEY: ${HOOKRELAY_API_KEY:-}
+      HOOKRELAY_API_KEY_FILE: /state/hookrelay-api-key
+    volumes: ["platform-state:/state:ro"]
     ports: ["4000:4000"]
-    depends_on: { flagship-postgres: { condition: service_healthy } }
+    depends_on:
+      flagship-postgres: { condition: service_healthy }
+      bootstrap: { condition: service_completed_successfully }
 
   # ---------------------------------------------------------------- Nimbus (async pipeline guardian)
   nimbus-postgres:
@@ -84,6 +87,39 @@ services:
     ports: ["8080:8080"]
     depends_on: { nimbus-migrate: { condition: service_completed_successfully } }
 
+  # ---------------------------------------------------------------- Bitácora (incident ledger)
+  # In AWS it runs as Lambda + DynamoDB (../bitacora/infra/terraform); here the same handlers run
+  # behind a small HTTP adapter, with DynamoDB Local.
+  bitacora-dynamodb:
+    image: amazon/dynamodb-local:2.6.1
+    command: -jar DynamoDBLocal.jar -sharedDb -inMemory
+    healthcheck: { test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:8000 || exit 1"], interval: 2s, retries: 30 }
+  bitacora:
+    build: ../bitacora
+    environment:
+      DYNAMODB_ENDPOINT: http://bitacora-dynamodb:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      BITACORA_TOKEN: ${ADMIN_TOKEN:-change-me}
+      PUBLIC_BASE_URL: http://bitacora:8090 # the URL Hookrelay delivers to, inside this network
+    ports: ["8090:8090"]
+    depends_on: { bitacora-dynamodb: { condition: service_healthy } }
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/health"], interval: 2s, retries: 30 }
+
+  # ---------------------------------------------------------------- Wiring (one-shot, see bootstrap.mjs)
+  bootstrap:
+    image: node:24-alpine
+    command: ["node", "/bootstrap.mjs"]
+    volumes: ["./bootstrap.mjs:/bootstrap.mjs:ro", "platform-state:/state"]
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
+      BITACORA_TOKEN: ${ADMIN_TOKEN:-change-me}
+    depends_on:
+      hookrelay-api: { condition: service_started }
+      bitacora: { condition: service_healthy }
+    restart: "no"
+
   # ---------------------------------------------------------------- A customer system receiving webhooks
   receiver:
     image: node:24-alpine
@@ -91,3 +127,6 @@ services:
     volumes: ["../hookrelay/examples/receiver:/app:ro"]
     command: ["node", "server.js"]
     environment: { FAIL_RATE: "0" }
+
+volumes:
+  platform-state:

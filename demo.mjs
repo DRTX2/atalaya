@@ -1,12 +1,13 @@
 // End-to-end Atalaya scenario, asserted step by step:
 //   Nimbus detects a stalled pipeline -> Flagship kills the risky feature flag (SDK sees it in ms)
 //   -> Hookrelay delivers the incident to a customer webhook. Recovery restores the flag.
+//   -> Bitácora, subscribed through Hookrelay, rebuilds the timeline and drafts the postmortem.
 // usage: docker compose up -d --wait && node demo.mjs      (Node 24+, no dependencies)
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
-const HOOKRELAY = 'http://localhost:3000', FLAGSHIP = 'http://localhost:4000', NIMBUS = 'http://localhost:8080';
+const HOOKRELAY = 'http://localhost:3000', FLAGSHIP = 'http://localhost:4000', NIMBUS = 'http://localhost:8080', BITACORA = 'http://localhost:8090';
 const ADMIN = process.env.ADMIN_TOKEN ?? 'change-me';
 const NIMBUS_KEY = process.env.NIMBUS_API_KEY ?? 'nimbus-local-development-key';
 const run = Date.now().toString(36);
@@ -21,6 +22,7 @@ async function http(base, method, path, { body, headers } = {}) {
 }
 const hookrelayAdmin = (m, p, body) => http(HOOKRELAY, m, p, { body, headers: { 'x-admin-token': ADMIN } });
 const flagship = (m, p, body) => http(FLAGSHIP, m, p, { body, headers: { authorization: `Bearer ${ADMIN}`, 'x-actor': 'atalaya-demo' } });
+const bitacora = (m, p) => http(BITACORA, m, p, { headers: { authorization: `Bearer ${ADMIN}` } });
 const nimbus = (m, p, body, extra = {}) => http(NIMBUS, m, p, { body, headers: { authorization: `Bearer ${NIMBUS_KEY}`, ...extra } });
 async function until(what, fn, timeoutMs = 60_000) {
   const end = Date.now() + timeoutMs;
@@ -32,11 +34,16 @@ async function until(what, fn, timeoutMs = 60_000) {
   }
 }
 
-step(1, 'Hookrelay: tenant + a customer endpoint subscribed to incident events');
-const app = await hookrelayAdmin('POST', '/v1/apps', { name: `atalaya-${run}` });
+step(1, 'Hookrelay: the platform tenant (bootstrap) + a customer endpoint subscribed to incident events');
+// bootstrap.mjs created the tenant, gave Flagship its key and subscribed Bitácora to incident.* and flag.*
+const platform = JSON.parse(execSync('docker compose run --rm --no-deps -T --entrypoint cat bootstrap /state/platform.json', { encoding: 'utf8' }));
+const app = { id: platform.hookrelayAppId, apiKey: platform.hookrelayApiKey };
 const hr = (m, p, body) => http(HOOKRELAY, m, p, { body, headers: { authorization: `Bearer ${app.apiKey}` } });
-await hr('POST', '/v1/endpoints', { url: 'http://receiver:4000/oncall', eventTypes: ['incident.opened', 'incident.recovered'], description: 'On-call system' });
-ok(`tenant ${app.id}`);
+if (!(await hr('GET', '/v1/endpoints')).some((e) => e.url === 'http://receiver:4000/oncall')) {
+  await hr('POST', '/v1/endpoints', { url: 'http://receiver:4000/oncall', eventTypes: ['incident.opened', 'incident.recovered'], description: 'On-call system' });
+}
+const runStartedAt = new Date().toISOString();
+ok(`tenant ${app.id} (endpoints: on-call receiver, Bitácora)`);
 
 step(2, 'Flagship: a risky feature flag, ON in production, with an SDK stream connected');
 const flagKey = `orders-v2-${run}`;
@@ -117,12 +124,26 @@ ok(`Flagship restored ${flagKey} to its pre-incident configuration`);
 await until('customer webhook for incident.recovered', async () => receiverLog().includes('incident.recovered'));
 ok('Hookrelay delivered incident.recovered');
 
-step(6, 'Evidence kept by each product');
-const messages = await hr('GET', '/v1/messages?limit=20');
-console.log('   Hookrelay messages:', messages.data.map((m) => `${m.eventType} (${m.succeeded}/${m.fanout} delivered)`).join(', '));
-console.log('   Flagship audit:   ', (await flagship('GET', `/api/flags/${flagKey}/audit`)).map((a) => a.action.split(':')[0].replace(/ [0-9a-f-]{36}/, '')).reverse().join(' -> '));
-// Optional: set HOOKRELAY_API_KEY in .env and Flagship also publishes every flag change as flag.* events.
+step(6, 'Bitácora rebuilt the incident from the webhooks Hookrelay delivered to it');
+const ledger = await until('Bitácora timeline complete', async () => {
+  const r = await bitacora('GET', `/incidents/${incident.id}`);
+  return r.metrics.status === 'recovered' && r.timeline.some((t) => t.type === 'flag.restored') ? r : undefined;
+});
+assert.deepEqual(ledger.timeline.map((t) => t.type), ['incident.opened', 'flag.killed', 'incident.recovered', 'flag.restored']);
+assert.deepEqual(ledger.incident.flags, [`${flagKey}@production`]);
+ok(`timeline: ${ledger.timeline.map((t) => t.type).join(' -> ')}`);
+ok(`metrics: mitigated in ${ledger.metrics.timeToMitigateMs} ms, recovered in ${(ledger.metrics.timeToRecoverMs / 1000).toFixed(1)} s, flag restored ${ledger.metrics.timeToRestoreMs} ms after recovery`);
+const postmortem = await (await fetch(`${BITACORA}/incidents/${incident.id}/postmortem`, { headers: { authorization: `Bearer ${ADMIN}` } })).text();
+assert.match(postmortem, /## Timeline/);
+writeFileSync('docs/postmortem-example.md', postmortem);
+ok('postmortem drafted (saved to docs/postmortem-example.md)');
 
-writeFileSync('.demo-state.json', JSON.stringify({ hookrelayApiKey: app.apiKey, flagKey, incidentId: incident.id, pipelineId: pipeline.id, messageId: messages.data.at(-1).id }, null, 2)); // handy for exploring the dashboards afterwards
+step(7, 'Evidence kept by each product');
+const messages = await hr('GET', '/v1/messages?limit=50');
+const thisRun = messages.data.filter((m) => m.createdAt >= runStartedAt);
+console.log('   Hookrelay messages:', thisRun.map((m) => `${m.eventType} (${m.succeeded}/${m.fanout} delivered)`).reverse().join(', '));
+console.log('   Flagship audit:   ', (await flagship('GET', `/api/flags/${flagKey}/audit`)).map((a) => a.action.split(':')[0].replace(/ [0-9a-f-]{36}/, '')).reverse().join(' -> '));
+
+writeFileSync('.demo-state.json', JSON.stringify({ hookrelayApiKey: app.apiKey, flagKey, incidentId: incident.id, pipelineId: pipeline.id, messageId: thisRun.at(-1)?.id }, null, 2)); // handy for exploring the dashboards afterwards
 console.log('\nAll assertions passed.');
 process.exit(0);
