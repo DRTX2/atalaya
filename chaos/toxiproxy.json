@@ -1,0 +1,8 @@
+[
+  {"name": "nimbus-flagship", "listen": "0.0.0.0:14000", "upstream": "flagship:4000", "enabled": true},
+  {"name": "nimbus-hookrelay", "listen": "0.0.0.0:13000", "upstream": "hookrelay-api:3000", "enabled": true},
+  {"name": "flagship-hookrelay", "listen": "0.0.0.0:13001", "upstream": "hookrelay-api:3000", "enabled": true},
+  {"name": "hookrelay-oncall", "listen": "0.0.0.0:14100", "upstream": "receiver:4000", "enabled": true},
+  {"name": "hookrelay-bitacora", "listen": "0.0.0.0:18090", "upstream": "bitacora:8090", "enabled": true},
+  {"name": "orders-flagship", "listen": "0.0.0.0:14001", "upstream": "flagship:4000", "enabled": true}
+]

@@ -1,0 +1,62 @@
+{
+  "name": "orders-flagship-db-down",
+  "scenario": "orders",
+  "title": "Flagship's database goes down just as the kill switch is needed",
+  "hypothesis": "Two failures at once: a database outage delays the kill switch but never breaks checkout. SDKs keep serving the last known rules, and Nimbus' retries land the kill once the database is back.",
+  "faults": [
+    {
+      "service": "orders-consumer",
+      "type": "stop",
+      "at": "start",
+      "until": "recover"
+    },
+    {
+      "service": "flagship-postgres",
+      "type": "stop",
+      "at": "start",
+      "delaySeconds": 50,
+      "seconds": 40
+    }
+  ],
+  "detectWithinSeconds": 150,
+  "checks": [
+    {
+      "probe": "flagOff",
+      "withinSeconds": 90
+    },
+    {
+      "probe": "ordersNeverFailed",
+      "withinSeconds": 5
+    },
+    {
+      "probe": "servedByV1",
+      "withinSeconds": 100
+    },
+    {
+      "probe": "recovered",
+      "phase": "recovery",
+      "withinSeconds": 120
+    },
+    {
+      "probe": "flagRestored",
+      "phase": "recovery",
+      "withinSeconds": 130
+    },
+    {
+      "probe": "ordersNeverFailed",
+      "phase": "recovery",
+      "withinSeconds": 5
+    },
+    {
+      "probe": "timeline",
+      "phase": "recovery",
+      "types": [
+        "incident.opened",
+        "flag.killed",
+        "incident.recovered",
+        "flag.restored"
+      ],
+      "withinSeconds": 90
+    }
+  ]
+}

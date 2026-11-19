@@ -1,0 +1,10 @@
+{
+  "name": "publish-path-down",
+  "title": "Flagship cannot reach Hookrelay for 10 s around the kill",
+  "hypothesis": "A flag change is never lost: the kill still reaches Bitácora once Hookrelay is reachable again, so the postmortem shows the mitigation.",
+  "faults": [{ "link": "flagship-hookrelay", "type": "down", "at": "stall", "seconds": 10 }],
+  "checks": [
+    { "probe": "flagKilled", "withinSeconds": 10 },
+    { "probe": "timeline", "phase": "recovery", "types": ["incident.opened", "flag.killed", "incident.recovered", "flag.restored"], "withinSeconds": 60 }
+  ]
+}

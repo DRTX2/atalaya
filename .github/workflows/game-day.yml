@@ -1,0 +1,95 @@
+name: Game day
+
+# The whole platform (four products + the protected orders app) is built from the product repos'
+# main branches and every chaos experiment runs against it. A red run means a failure mode the
+# architecture claims to handle no longer is: see chaos/reports/latest.md in the run's artifact.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1' # weekly: catches regressions merged in the product repos
+  workflow_dispatch:
+    inputs:
+      experiments:
+        description: Experiment names separated by spaces (empty = all)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-day-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Orders app
+        working-directory: orders
+        run: npm ci && npm test
+      - name: Console
+        working-directory: console
+        run: npm test
+      - name: Scripts parse
+        run: for f in bootstrap.mjs demo.mjs lib/atalaya.mjs chaos/*.mjs orders/provision.mjs; do node --check "$f"; done
+
+  game-day:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # compose.yaml builds the products from ../nimbus, ../flagship, ../hookrelay and ../bitacora.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { path: atalaya }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { repository: DRTX2/nimbus, path: nimbus }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { repository: DRTX2/flagship, path: flagship }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { repository: DRTX2/hookrelay, path: hookrelay }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { repository: DRTX2/bitacora, path: bitacora }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Start the platform
+        working-directory: atalaya
+        run: docker compose up -d --build --wait
+
+      - name: Let the orders agent report healthy windows
+        run: sleep 60
+
+      - name: Run the game day
+        working-directory: atalaya
+        env:
+          EXPERIMENTS: ${{ github.event.inputs.experiments }} # via env, never interpolated into the script
+        run: node chaos/run.mjs $EXPERIMENTS
+
+      - name: Publish the report
+        if: always()
+        working-directory: atalaya
+        run: test -f chaos/reports/latest.md && cat chaos/reports/latest.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: game-day-report
+          path: atalaya/chaos/reports/
+
+      - name: Logs of failed run
+        if: failure()
+        working-directory: atalaya
+        run: docker compose logs --no-color --tail 200
+
+      - name: Stop the platform
+        if: always()
+        working-directory: atalaya
+        run: docker compose down -v

@@ -10,8 +10,9 @@ const HOOKRELAY = process.env.HOOKRELAY_URL ?? 'http://hookrelay-api:3000';
 const BITACORA = process.env.BITACORA_URL ?? 'http://bitacora:8090';
 const ADMIN = process.env.ADMIN_TOKEN ?? 'change-me';
 const BITACORA_TOKEN = process.env.BITACORA_TOKEN ?? 'change-me';
-const STATE = '/state/platform.json';
-const EVENT_TYPES = ['incident.opened', 'incident.recovered', 'flag.created', 'flag.updated', 'flag.archived'];
+const STATE_DIR = process.env.STATE_DIR ?? '/state'; // deploy/aws runs it from a laptop against the public URLs
+const STATE = `${STATE_DIR}/platform.json`;
+const EVENT_TYPES = ['incident.opened', 'incident.recovered', 'incident.escalated', 'flag.created', 'flag.updated', 'flag.archived'];
 
 async function call(base, method, path, { body, headers } = {}) {
   const res = await fetch(base + path, { method, headers: { 'content-type': 'application/json', ...headers }, body: body && JSON.stringify(body) });
@@ -50,6 +51,13 @@ async function sourceValid(state) {
   return (await call(BITACORA, 'POST', `/webhooks/hookrelay/${state.bitacoraSourceId}`, { body: {} })).status === 401;
 }
 
+/** Bitácora's subscription covers every event type this version publishes (new ones get added over time). */
+async function subscriptionCurrent(state) {
+  const endpoints = await expectOk(HOOKRELAY, 'GET', '/v1/endpoints', { headers: hookrelayAuth(state.hookrelayApiKey) });
+  const bitacora = endpoints.find((e) => e.url.includes(`/webhooks/hookrelay/${state.bitacoraSourceId}`));
+  return !!bitacora && EVENT_TYPES.every((t) => bitacora.eventTypes.includes(t));
+}
+
 /** New Bitácora source, subscribed in the tenant; replaces any Bitácora endpoint left from a lost source. */
 async function connectBitacora(apiKey) {
   const existing = await expectOk(HOOKRELAY, 'GET', '/v1/endpoints', { headers: hookrelayAuth(apiKey) });
@@ -74,7 +82,7 @@ if (!state || !(await tenantValid(state))) {
   const app = await expectOk(HOOKRELAY, 'POST', '/v1/apps', { body: { name: 'atalaya-platform' }, headers: { 'x-admin-token': ADMIN } });
   state = { hookrelayAppId: app.id, hookrelayApiKey: app.apiKey, bitacoraSourceId: await connectBitacora(app.apiKey) };
   console.log(`created platform tenant ${app.id}; Bitácora subscribed to ${EVENT_TYPES.join(', ')}`);
-} else if (!(await sourceValid(state))) {
+} else if (!(await sourceValid(state)) || !(await subscriptionCurrent(state))) {
   state.bitacoraSourceId = await connectBitacora(state.hookrelayApiKey);
   console.log(`reconnected Bitácora (source ${state.bitacoraSourceId}) to tenant ${state.hookrelayAppId}`);
 } else {
@@ -82,4 +90,4 @@ if (!state || !(await tenantValid(state))) {
 }
 writeFileSync(STATE, JSON.stringify(state, null, 2));
 // Flagship reads this through HOOKRELAY_API_KEY_FILE (Docker secrets convention).
-writeFileSync('/state/hookrelay-api-key', state.hookrelayApiKey);
+writeFileSync(`${STATE_DIR}/hookrelay-api-key`, state.hookrelayApiKey);

@@ -1,0 +1,12 @@
+{
+  "name": "flagship-blip",
+  "title": "Flagship unreachable for 15 s while an incident opens",
+  "hypothesis": "Nimbus retries absorb a short Flagship outage (a deploy, a restart): the flag is still killed and on-call is still notified.",
+  "faults": [{ "link": "nimbus-flagship", "type": "down", "at": "stall", "seconds": 15 }],
+  "checks": [
+    { "probe": "flagKilled", "withinSeconds": 60 },
+    { "probe": "delivered", "endpoint": "oncall", "event": "incident.opened", "withinSeconds": 30 },
+    { "probe": "flagRestored", "phase": "recovery", "withinSeconds": 30 },
+    { "probe": "timeline", "phase": "recovery", "types": ["incident.opened", "flag.killed", "incident.recovered", "flag.restored"], "withinSeconds": 60 }
+  ]
+}

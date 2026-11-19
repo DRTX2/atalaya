@@ -5,6 +5,17 @@ name: atalaya
 x-secret: &secret
   NIMBUS_WEBHOOK_SECRET: ${NIMBUS_WEBHOOK_SECRET:-atalaya-local-shared-secret}
 
+# Distributed tracing for the Node products (zero-code instrumentation already in their images).
+# W3C traceparent crosses every product boundary; an incident's trace ID is its incident ID (Nimbus).
+x-otel: &otel
+  NODE_OPTIONS: --import @opentelemetry/auto-instrumentations-node/register
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+  OTEL_NODE_ENABLED_INSTRUMENTATIONS: http,undici,express,nestjs-core,pg,ioredis,aws-sdk
+  OTEL_NODE_RESOURCE_DETECTORS: env,host,os,process # no cloud metadata probes on a laptop
+
 services:
   # ---------------------------------------------------------------- Hookrelay (event delivery)
   hookrelay-postgres:
@@ -17,8 +28,9 @@ services:
   hookrelay-api: &hookrelay
     build: { context: ../hookrelay, dockerfile: apps/api/Dockerfile }
     image: atalaya-hookrelay:local
-    environment:
-      <<: *secret
+    environment: &hookrelay-env
+      <<: [*secret, *otel]
+      OTEL_SERVICE_NAME: hookrelay-api
       DATABASE_URL: postgres://hookrelay:hookrelay@hookrelay-postgres:5432/hookrelay
       REDIS_URL: redis://hookrelay-redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
@@ -32,6 +44,9 @@ services:
     build: !reset null
     pull_policy: never
     command: ["node", "dist/worker.js"]
+    environment:
+      <<: *hookrelay-env
+      OTEL_SERVICE_NAME: hookrelay-worker
     ports: []
     depends_on: [hookrelay-api]
 
@@ -43,12 +58,13 @@ services:
   flagship:
     build: ../flagship
     environment:
-      <<: *secret
+      <<: [*secret, *otel]
+      OTEL_SERVICE_NAME: flagship
       DATABASE_URL: postgres://flagship:flagship@flagship-postgres:5432/flagship
       ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
       LOG_FORMAT: json
       # Flag changes are published to Hookrelay with the platform tenant's key, written by bootstrap.
-      HOOKRELAY_URL: http://hookrelay-api:3000
+      HOOKRELAY_URL: http://toxiproxy:13001 # through the fault-injection proxy (chaos/toxiproxy.json)
       HOOKRELAY_API_KEY_FILE: /state/hookrelay-api-key
     volumes: ["platform-state:/state:ro"]
     ports: ["4000:4000"]
@@ -81,9 +97,10 @@ services:
       <<: [*nimbus-env, *secret]
       NIMBUS_COMPONENT: all
       NIMBUS_HTTP_ADDRESS: :8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       NIMBUS_WORKER_COUNT: 2
       # Nimbus blocks private destinations by default; only its two sibling products are allowed.
-      NIMBUS_OUTBOUND_ALLOWED_HOSTS: flagship,hookrelay-api
+      NIMBUS_OUTBOUND_ALLOWED_HOSTS: flagship,hookrelay-api,toxiproxy
     ports: ["8080:8080"]
     depends_on: { nimbus-migrate: { condition: service_completed_successfully } }
 
@@ -97,12 +114,14 @@ services:
   bitacora:
     build: ../bitacora
     environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: bitacora
       DYNAMODB_ENDPOINT: http://bitacora-dynamodb:8000
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: local
       AWS_SECRET_ACCESS_KEY: local
       BITACORA_TOKEN: ${ADMIN_TOKEN:-change-me}
-      PUBLIC_BASE_URL: http://bitacora:8090 # the URL Hookrelay delivers to, inside this network
+      PUBLIC_BASE_URL: http://toxiproxy:18090 # the URL Hookrelay delivers to: through the fault-injection proxy
     ports: ["8090:8090"]
     depends_on: { bitacora-dynamodb: { condition: service_healthy } }
     healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/health"], interval: 2s, retries: 30 }
@@ -120,6 +139,124 @@ services:
       bitacora: { condition: service_healthy }
     restart: "no"
 
+  # ---------------------------------------------------------------- Atalaya Console (one view across the four products)
+  console:
+    build: ./console
+    environment:
+      NIMBUS_URL: http://nimbus:8080
+      FLAGSHIP_URL: http://flagship:4000
+      HOOKRELAY_URL: http://hookrelay-api:3000
+      BITACORA_URL: http://bitacora:8090
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
+      NIMBUS_API_KEY: ${NIMBUS_API_KEY:-nimbus-local-development-key}
+      PLATFORM_STATE: /state/platform.json # the platform tenant's Hookrelay key, written by bootstrap
+      REPORTS_DIR: /reports # game day reports from chaos/run.mjs
+      JAEGER_UI: http://localhost:16686 # "View trace" links (as seen from the browser)
+      # Sign-in through the platform's identity provider (keycloak/atalaya-realm.json: olivia = operator, victor = viewer).
+      CONSOLE_URL: http://localhost:3100
+      OIDC_ISSUER: http://localhost:8180/realms/atalaya # as the browser sees it (the token issuer)
+      OIDC_INTERNAL_URL: http://keycloak:8180 # the same server, from inside the network
+      OIDC_CLIENT_ID: atalaya-console
+      OIDC_CLIENT_SECRET: ${CONSOLE_CLIENT_SECRET:-atalaya-console-local-secret}
+      SESSION_SECRET: ${CONSOLE_SESSION_SECRET:-local-only-session-secret-change-me-0123456789}
+      AUDIT_DIR: /data
+    volumes: ["platform-state:/state:ro", "./chaos/reports:/reports:ro", "console-audit:/data"]
+    ports: ["3100:3100"]
+    depends_on: { bootstrap: { condition: service_completed_successfully }, keycloak: { condition: service_healthy } }
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3100/auth/forbidden"], interval: 3s, retries: 30 }
+
+  # ---------------------------------------------------------------- Identity (one login for the platform)
+  keycloak: # OIDC provider; the realm (roles viewer/operator, the console client, demo users) is imported on start
+    image: quay.io/keycloak/keycloak:26.1.4
+    command: ["start-dev", "--import-realm", "--http-port=8180", "--hostname=http://localhost:8180", "--hostname-backchannel-dynamic=true", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    volumes: ["./keycloak:/opt/keycloak/data/import:ro"]
+    ports: ["8180:8180"]
+    healthcheck:
+      # No curl in the image: ask the management port's readiness endpoint over bash's /dev/tcp.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      retries: 40
+
+  # ---------------------------------------------------------------- Tracing
+  jaeger: # OTLP in (4318), UI and query API on :16686. In-memory: traces vanish with the stack.
+    image: jaegertracing/jaeger:2.5.0
+    ports: ["16686:16686"]
+
+  # ---------------------------------------------------------------- The protected app (orders)
+  # A real workload for the platform to protect: customers place orders (k6), checkout v2 queues them
+  # on SQS for a Lambda-style consumer, the Flagship kill switch `checkout-v2` falls back to the
+  # synchronous v1 path, and an agent pushes the real queue metrics to Nimbus every 30 s.
+  elasticmq: # SQS-compatible locally; real SQS in AWS
+    image: softwaremill/elasticmq-native:1.6.11
+    volumes: ["./orders/elasticmq.conf:/opt/elasticmq.conf:ro"]
+    ports: ["9324:9324"]
+  orders-provision:
+    build: { context: ./orders, additional_contexts: { flagship: ../flagship } }
+    image: atalaya-orders:local
+    command: ["node", "provision.mjs"]
+    user: root # writes the SDK key and pipeline id into the shared state volume
+    volumes: ["platform-state:/state", "./lib:/app/lib:ro"]
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
+      NIMBUS_API_KEY: ${NIMBUS_API_KEY:-nimbus-local-development-key}
+    depends_on:
+      bootstrap: { condition: service_completed_successfully }
+      flagship: { condition: service_started } # provision.mjs polls Flagship /health and Nimbus /health/ready itself
+      nimbus: { condition: service_started }
+    restart: "no"
+  orders:
+    image: atalaya-orders:local
+    pull_policy: never
+    environment: &orders-env
+      SQS_ENDPOINT: http://elasticmq:9324
+      FLAGSHIP_URL: http://toxiproxy:14001 # through the fault-injection proxy: the SDK must survive a Flagship outage
+      FLAGSHIP_SDK_KEY_FILE: /state/orders-sdk-key
+      PORT: "8081"
+    volumes: ["platform-state:/state:ro"]
+    ports: ["8081:8081"]
+    depends_on:
+      orders-provision: { condition: service_completed_successfully }
+      elasticmq: { condition: service_started }
+      toxiproxy: { condition: service_started }
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"], interval: 3s, retries: 40 }
+  orders-consumer:
+    image: atalaya-orders:local
+    pull_policy: never
+    command: ["node", "src/consumer-local.ts"]
+    environment: { SQS_ENDPOINT: http://elasticmq:9324, WORK_MS: "15" }
+    depends_on: { orders-provision: { condition: service_completed_successfully } }
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9100/health"], interval: 3s, retries: 40 }
+  orders-agent:
+    image: atalaya-orders:local
+    pull_policy: never
+    command: ["node", "src/agent.ts"]
+    environment:
+      SQS_ENDPOINT: http://elasticmq:9324
+      NIMBUS_URL: http://nimbus:8080
+      NIMBUS_API_KEY: ${NIMBUS_API_KEY:-nimbus-local-development-key}
+      CONSUMER_METRICS_URL: http://orders-consumer:9100/metrics
+      WINDOW_SECONDS: "30"
+    volumes: ["platform-state:/state:ro"]
+    depends_on: { orders-provision: { condition: service_completed_successfully } }
+  traffic: # steady customer load
+    image: grafana/k6:1.0.0
+    command: ["run", "--quiet", "/scripts/traffic.js"]
+    environment: { BASE_URL: http://orders:8081, RATE: "10" }
+    volumes: ["./orders/k6:/scripts:ro"]
+    depends_on: { orders: { condition: service_healthy } }
+
+  # ---------------------------------------------------------------- Network between products
+  # Every link between products goes through Toxiproxy (one proxy per link, chaos/toxiproxy.json).
+  # It is transparent until a game day (chaos/run.mjs) disables a link or adds latency.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes: ["./chaos/toxiproxy.json:/config/toxiproxy.json:ro"]
+    ports: ["8474:8474"]
+
   # ---------------------------------------------------------------- A customer system receiving webhooks
   receiver:
     image: node:24-alpine
@@ -130,3 +267,4 @@ services:
 
 volumes:
   platform-state:
+  console-audit:

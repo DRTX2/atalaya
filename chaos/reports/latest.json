@@ -1,0 +1,588 @@
+[
+  {
+    "name": "flagship-blip",
+    "title": "Flagship unreachable for 15 s while an incident opens",
+    "hypothesis": "Nimbus retries absorb a short Flagship outage (a deploy, a restart): the flag is still killed and on-call is still notified.",
+    "faults": [
+      {
+        "link": "nimbus-flagship",
+        "type": "down",
+        "at": "stall",
+        "seconds": 15
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "flagKilled",
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "flag off 16297 ms after the incident's second degraded window",
+        "tookMs": 17000
+      },
+      {
+        "probe": "delivered",
+        "endpoint": "oncall",
+        "event": "incident.opened",
+        "withinSeconds": 30,
+        "ok": true,
+        "observed": "incident.opened → oncall: delivered after 1 attempt(s)",
+        "tookMs": 1166
+      },
+      {
+        "probe": "flagRestored",
+        "phase": "recovery",
+        "withinSeconds": 30,
+        "ok": true,
+        "observed": "flag back on 780 ms after recovery",
+        "tookMs": 1001
+      },
+      {
+        "probe": "timeline",
+        "phase": "recovery",
+        "types": [
+          "incident.opened",
+          "flag.killed",
+          "incident.recovered",
+          "flag.restored"
+        ],
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → flag.killed → incident.recovered → flag.restored",
+        "tookMs": 2023
+      }
+    ],
+    "startedAt": "2026-11-19T03:53:43.167Z",
+    "timeline": [
+      "incident.opened",
+      "flag.killed",
+      "incident.recovered",
+      "flag.restored"
+    ],
+    "durationMs": 19621,
+    "incidentId": "c08b7650-884d-4e88-934e-bc385ce5f135"
+  },
+  {
+    "name": "hookrelay-slow",
+    "title": "Every call from Nimbus to Hookrelay takes 3 extra seconds",
+    "hypothesis": "Mitigation does not wait for notification: the kill switch lands as fast as usual and the notification arrives late but intact.",
+    "faults": [
+      {
+        "link": "nimbus-hookrelay",
+        "type": "latency",
+        "ms": 3000,
+        "at": "stall",
+        "until": "end"
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "flagKilled",
+        "withinSeconds": 5,
+        "ok": true,
+        "observed": "flag off 711 ms after the incident's second degraded window",
+        "tookMs": 1001
+      },
+      {
+        "probe": "delivered",
+        "endpoint": "oncall",
+        "event": "incident.opened",
+        "withinSeconds": 40,
+        "ok": true,
+        "observed": "incident.opened → oncall: delivered after 1 attempt(s)",
+        "tookMs": 4348
+      },
+      {
+        "probe": "flagRestored",
+        "phase": "recovery",
+        "withinSeconds": 10,
+        "ok": true,
+        "observed": "flag back on 845 ms after recovery",
+        "tookMs": 1000
+      },
+      {
+        "probe": "delivered",
+        "phase": "recovery",
+        "endpoint": "oncall",
+        "event": "incident.recovered",
+        "withinSeconds": 40,
+        "ok": true,
+        "observed": "incident.recovered → oncall: delivered after 1 attempt(s)",
+        "tookMs": 4319
+      }
+    ],
+    "startedAt": "2026-11-19T03:54:02.788Z",
+    "durationMs": 9227,
+    "incidentId": "11802c4f-4f26-477f-acd5-152752f98d46"
+  },
+  {
+    "name": "oncall-down",
+    "title": "The customer's on-call endpoint is down for the whole incident",
+    "hypothesis": "A dead customer endpoint never blocks the platform: deliveries retry, park in the DLQ, Bitácora is unaffected, and a replay delivers everything once the endpoint is back.",
+    "faults": [
+      {
+        "link": "hookrelay-oncall",
+        "type": "down",
+        "at": "stall",
+        "until": "end"
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "flagKilled",
+        "withinSeconds": 10,
+        "ok": true,
+        "observed": "flag off 990 ms after the incident's second degraded window",
+        "tookMs": 1001
+      },
+      {
+        "probe": "timeline",
+        "phase": "recovery",
+        "types": [
+          "incident.opened",
+          "flag.killed",
+          "incident.recovered",
+          "flag.restored"
+        ],
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → flag.killed → incident.recovered → flag.restored",
+        "tookMs": 2010
+      },
+      {
+        "probe": "deadLettered",
+        "phase": "recovery",
+        "endpoint": "oncall",
+        "event": "incident.recovered",
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "incident.recovered → oncall: in the DLQ after 4 attempts",
+        "tookMs": 24340
+      },
+      {
+        "probe": "delivered",
+        "phase": "after",
+        "endpoint": "oncall",
+        "event": "incident.opened",
+        "withinSeconds": 30,
+        "ok": true,
+        "observed": "incident.opened → oncall: delivered after 5 attempt(s)",
+        "tookMs": 1126
+      },
+      {
+        "probe": "delivered",
+        "phase": "after",
+        "endpoint": "oncall",
+        "event": "incident.recovered",
+        "withinSeconds": 30,
+        "ok": true,
+        "observed": "incident.recovered → oncall: delivered after 5 attempt(s)",
+        "tookMs": 1123
+      }
+    ],
+    "startedAt": "2026-11-19T03:54:12.015Z",
+    "replayed": 2,
+    "timeline": [
+      "incident.opened",
+      "flag.killed",
+      "incident.recovered",
+      "flag.restored"
+    ],
+    "durationMs": 27022,
+    "incidentId": "962daa4f-d581-432b-aec8-0e49f5fae918"
+  },
+  {
+    "name": "bitacora-down",
+    "title": "Bitácora is unreachable for the whole incident",
+    "hypothesis": "The learning step is never on the critical path: the incident is mitigated and recovered as usual, and after a DLQ replay Bitácora rebuilds the same, correctly ordered timeline from late, out-of-order deliveries.",
+    "faults": [
+      {
+        "link": "hookrelay-bitacora",
+        "type": "down",
+        "at": "stall",
+        "until": "end"
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "flagKilled",
+        "withinSeconds": 10,
+        "ok": true,
+        "observed": "flag off 973 ms after the incident's second degraded window",
+        "tookMs": 1001
+      },
+      {
+        "probe": "delivered",
+        "endpoint": "oncall",
+        "event": "incident.opened",
+        "withinSeconds": 20,
+        "ok": true,
+        "observed": "incident.opened → oncall: delivered after 1 attempt(s)",
+        "tookMs": 1094
+      },
+      {
+        "probe": "flagRestored",
+        "phase": "recovery",
+        "withinSeconds": 10,
+        "ok": true,
+        "observed": "flag back on 863 ms after recovery",
+        "tookMs": 1001
+      },
+      {
+        "probe": "deadLettered",
+        "phase": "recovery",
+        "endpoint": "bitacora",
+        "event": "incident.recovered",
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "incident.recovered → bitacora: in the DLQ after 4 attempts",
+        "tookMs": 22130
+      },
+      {
+        "probe": "timeline",
+        "phase": "after",
+        "types": [
+          "incident.opened",
+          "flag.killed",
+          "incident.recovered",
+          "flag.restored"
+        ],
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → flag.killed → incident.recovered → flag.restored",
+        "tookMs": 4020
+      }
+    ],
+    "startedAt": "2026-11-19T03:54:39.037Z",
+    "replayed": 3,
+    "timeline": [
+      "incident.opened",
+      "flag.killed",
+      "incident.recovered",
+      "flag.restored"
+    ],
+    "durationMs": 27793,
+    "incidentId": "262c6331-93f6-4b56-89a6-5aba9255c0fc"
+  },
+  {
+    "name": "publish-path-down",
+    "title": "Flagship cannot reach Hookrelay for 10 s around the kill",
+    "hypothesis": "A flag change is never lost: the kill still reaches Bitácora once Hookrelay is reachable again, so the postmortem shows the mitigation.",
+    "faults": [
+      {
+        "link": "flagship-hookrelay",
+        "type": "down",
+        "at": "stall",
+        "seconds": 10
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "flagKilled",
+        "withinSeconds": 10,
+        "ok": true,
+        "observed": "flag off 673 ms after the incident's second degraded window",
+        "tookMs": 1000
+      },
+      {
+        "probe": "timeline",
+        "phase": "recovery",
+        "types": [
+          "incident.opened",
+          "flag.killed",
+          "incident.recovered",
+          "flag.restored"
+        ],
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → flag.killed → incident.recovered → flag.restored",
+        "tookMs": 18085
+      }
+    ],
+    "startedAt": "2026-11-19T03:55:06.830Z",
+    "timeline": [
+      "incident.opened",
+      "flag.killed",
+      "incident.recovered",
+      "flag.restored"
+    ],
+    "durationMs": 19635,
+    "incidentId": "b9520f1a-800f-4a18-9ad9-64b7d18934b8"
+  },
+  {
+    "name": "orders-consumer-crash",
+    "title": "The real orders consumer crashes under customer traffic",
+    "hypothesis": "Nimbus detects the stall from real queue metrics, the kill switch moves customers to the synchronous v1 checkout so no order fails, and everything is restored when the consumer is back.",
+    "faults": [
+      {
+        "service": "orders-consumer",
+        "type": "stop",
+        "at": "start",
+        "until": "recover"
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "incidentOpened",
+        "withinSeconds": 150,
+        "ok": true,
+        "tookMs": 60126,
+        "observed": "Nimbus opened consumer_stalled from real metrics 60 s after the fault"
+      },
+      {
+        "probe": "flagOff",
+        "withinSeconds": 15,
+        "ok": true,
+        "observed": "Nimbus opened the incident 60 s after the fault; checkout-v2 OFF 1 s later",
+        "tookMs": 6
+      },
+      {
+        "probe": "servedByV1",
+        "withinSeconds": 20,
+        "ok": true,
+        "observed": "3 orders served by the synchronous v1 path while v2 was off",
+        "tookMs": 2
+      },
+      {
+        "probe": "ordersNeverFailed",
+        "withinSeconds": 5,
+        "ok": true,
+        "observed": "0 failed orders; 606 accepted since the fault",
+        "tookMs": 1
+      },
+      {
+        "probe": "recovered",
+        "phase": "recovery",
+        "withinSeconds": 120,
+        "ok": true,
+        "observed": "Nimbus recovered the incident 56 s after the fault was healed",
+        "tookMs": 56167
+      },
+      {
+        "probe": "flagRestored",
+        "phase": "recovery",
+        "withinSeconds": 130,
+        "ok": true,
+        "observed": "checkout-v2 back ON 57 s after the fault was healed",
+        "tookMs": 57149
+      },
+      {
+        "probe": "queueDrained",
+        "phase": "recovery",
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "orders queue drained to 0",
+        "tookMs": 10018
+      },
+      {
+        "probe": "ordersNeverFailed",
+        "phase": "recovery",
+        "withinSeconds": 5,
+        "ok": true,
+        "observed": "0 failed orders; 621 accepted since the fault",
+        "tookMs": 1
+      },
+      {
+        "probe": "timeline",
+        "phase": "recovery",
+        "types": [
+          "incident.opened",
+          "flag.killed",
+          "incident.recovered",
+          "flag.restored"
+        ],
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → flag.killed → incident.recovered → flag.restored",
+        "tookMs": 57245
+      }
+    ],
+    "startedAt": "2026-11-19T03:55:26.465Z",
+    "timeline": [
+      "incident.opened",
+      "flag.killed",
+      "incident.recovered",
+      "flag.restored"
+    ],
+    "durationMs": 125107,
+    "incidentId": "4e79d476-81a6-4104-8df0-2d087d1ade01"
+  },
+  {
+    "name": "orders-flagship-db-down",
+    "title": "Flagship's database goes down just as the kill switch is needed",
+    "hypothesis": "Two failures at once: a database outage delays the kill switch but never breaks checkout. SDKs keep serving the last known rules, and Nimbus' retries land the kill once the database is back.",
+    "faults": [
+      {
+        "service": "orders-consumer",
+        "type": "stop",
+        "at": "start",
+        "until": "recover"
+      },
+      {
+        "service": "flagship-postgres",
+        "type": "stop",
+        "at": "start",
+        "delaySeconds": 50,
+        "seconds": 40
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "incidentOpened",
+        "withinSeconds": 150,
+        "ok": true,
+        "tookMs": 56323,
+        "observed": "Nimbus opened consumer_stalled from real metrics 55 s after the fault"
+      },
+      {
+        "probe": "flagOff",
+        "withinSeconds": 90,
+        "ok": true,
+        "observed": "Nimbus opened the incident 55 s after the fault; checkout-v2 OFF 47 s later",
+        "tookMs": 46164
+      },
+      {
+        "probe": "ordersNeverFailed",
+        "withinSeconds": 5,
+        "ok": true,
+        "observed": "0 failed orders; 566 accepted since the fault",
+        "tookMs": 4
+      },
+      {
+        "probe": "servedByV1",
+        "withinSeconds": 100,
+        "ok": true,
+        "observed": "1 orders served by the synchronous v1 path while v2 was off",
+        "tookMs": 45278
+      },
+      {
+        "probe": "recovered",
+        "phase": "recovery",
+        "withinSeconds": 120,
+        "ok": true,
+        "observed": "Nimbus recovered the incident 38 s after the fault was healed",
+        "tookMs": 38123
+      },
+      {
+        "probe": "flagRestored",
+        "phase": "recovery",
+        "withinSeconds": 130,
+        "ok": true,
+        "observed": "checkout-v2 back ON 39 s after the fault was healed",
+        "tookMs": 39110
+      },
+      {
+        "probe": "ordersNeverFailed",
+        "phase": "recovery",
+        "withinSeconds": 5,
+        "ok": true,
+        "observed": "0 failed orders; 1057 accepted since the fault",
+        "tookMs": 1
+      },
+      {
+        "probe": "timeline",
+        "phase": "recovery",
+        "types": [
+          "incident.opened",
+          "flag.killed",
+          "incident.recovered",
+          "flag.restored"
+        ],
+        "withinSeconds": 90,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → flag.killed → incident.recovered → flag.restored",
+        "tookMs": 39197
+      }
+    ],
+    "startedAt": "2026-11-19T03:57:31.572Z",
+    "timeline": [
+      "incident.opened",
+      "flag.killed",
+      "incident.recovered",
+      "flag.restored"
+    ],
+    "durationMs": 150025,
+    "incidentId": "3ccad025-4704-4ad7-9380-de6156afd15d"
+  },
+  {
+    "name": "flagship-unreachable",
+    "title": "Flagship is unreachable for the whole incident: the kill switch cannot be pulled",
+    "hypothesis": "When automation cannot mitigate, it says so: after its ~90 s retry budget Nimbus escalates, on-call and Bitácora receive incident.escalated, and the postmortem records that a human had to act.",
+    "faults": [
+      {
+        "link": "nimbus-flagship",
+        "type": "down",
+        "at": "stall",
+        "until": "end"
+      }
+    ],
+    "status": "passed",
+    "checks": [
+      {
+        "probe": "delivered",
+        "endpoint": "oncall",
+        "event": "incident.escalated",
+        "withinSeconds": 150,
+        "ok": true,
+        "observed": "incident.escalated → oncall: delivered after 1 attempt(s)",
+        "tookMs": 95773
+      },
+      {
+        "probe": "delivered",
+        "endpoint": "bitacora",
+        "event": "incident.escalated",
+        "withinSeconds": 170,
+        "ok": true,
+        "observed": "incident.escalated → bitacora: delivered after 1 attempt(s)",
+        "tookMs": 95772
+      },
+      {
+        "probe": "timeline",
+        "types": [
+          "incident.opened",
+          "incident.escalated"
+        ],
+        "withinSeconds": 170,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → incident.escalated",
+        "tookMs": 95441
+      },
+      {
+        "probe": "timeline",
+        "phase": "recovery",
+        "types": [
+          "incident.opened",
+          "incident.escalated",
+          "incident.recovered"
+        ],
+        "withinSeconds": 60,
+        "ok": true,
+        "observed": "Bitácora timeline: incident.opened → incident.escalated → incident.recovered",
+        "tookMs": 1008
+      },
+      {
+        "probe": "postmortemSays",
+        "phase": "recovery",
+        "text": "escalated to on-call",
+        "withinSeconds": 10,
+        "ok": true,
+        "observed": "postmortem says \"escalated to on-call\"",
+        "tookMs": 17
+      }
+    ],
+    "startedAt": "2026-11-19T04:00:01.598Z",
+    "timeline": [
+      "incident.opened",
+      "incident.escalated",
+      "incident.recovered"
+    ],
+    "durationMs": 97360,
+    "incidentId": "7440f42c-43a5-4274-9a8b-f10b703ed93c"
+  }
+]

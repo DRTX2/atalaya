@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext", "strict": true,
+    "allowImportingTsExtensions": true, "noEmit": true, "skipLibCheck": true, "types": ["node"],
+    "paths": { "@flagship/sdk": ["../../flagship/packages/sdk/src/index.ts"], "@flagship/core": ["../../flagship/packages/core/src/index.ts"] }
+  },
+  "include": ["src", "test"]
+}

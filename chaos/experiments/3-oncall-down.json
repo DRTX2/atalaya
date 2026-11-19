@@ -1,0 +1,14 @@
+{
+  "name": "oncall-down",
+  "title": "The customer's on-call endpoint is down for the whole incident",
+  "hypothesis": "A dead customer endpoint never blocks the platform: deliveries retry, park in the DLQ, Bitácora is unaffected, and a replay delivers everything once the endpoint is back.",
+  "faults": [{ "link": "hookrelay-oncall", "type": "down", "at": "stall", "until": "end" }],
+  "checks": [
+    { "probe": "flagKilled", "withinSeconds": 10 },
+    { "probe": "timeline", "phase": "recovery", "types": ["incident.opened", "flag.killed", "incident.recovered", "flag.restored"], "withinSeconds": 60 },
+    { "probe": "deadLettered", "phase": "recovery", "endpoint": "oncall", "event": "incident.recovered", "withinSeconds": 60 },
+    { "probe": "delivered", "phase": "after", "endpoint": "oncall", "event": "incident.opened", "withinSeconds": 30 },
+    { "probe": "delivered", "phase": "after", "endpoint": "oncall", "event": "incident.recovered", "withinSeconds": 30 }
+  ],
+  "after": [{ "action": "replay", "endpoint": "oncall" }]
+}

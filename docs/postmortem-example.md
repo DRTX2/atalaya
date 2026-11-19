@@ -1,34 +1,34 @@
 # Postmortem: Queue backlog is aging while the Lambda consumer has no invocations
 
-- **Incident:** c31785b5-0b6a-41a5-8045-401c1e248da8
-- **Pipeline:** Orders async pipeline mwlhfong
+- **Incident:** 4d7d8775-21a3-4d69-9834-3096dcb349bc
+- **Pipeline:** Orders async pipeline mwmz936jig6
 - **Detector:** consumer_stalled · **Severity:** critical
 - **Status:** recovered
-- **Impact window:** 2026-11-18 02:08:40 UTC → 2026-11-18 02:08:41 UTC
+- **Impact window:** 2026-11-19 03:15:11 UTC → 2026-11-19 03:15:12 UTC
 
 ## Response
 
 | Step | Time |
 |---|---|
-| Opened → mitigated (flag off) | 677 ms |
+| Opened → mitigated (flag off) | 661 ms |
 | Opened → recovered | 1.1 s |
-| Recovered → flag restored | 608 ms |
+| Recovered → flag restored | 587 ms |
 
 ## Timeline
 
 | Time | Event | Actor |
 |---|---|---|
-| 2026-11-18 02:08:40 UTC | Incident opened: Queue backlog is aging while the Lambda consumer has no invocations | nimbus |
-| 2026-11-18 02:08:41 UTC | orders-v2-mwlhfong@production turned off (kill switch) | nimbus (automation) |
-| 2026-11-18 02:08:41 UTC | Pipeline healthy again: incident recovered | nimbus |
-| 2026-11-18 02:08:42 UTC | orders-v2-mwlhfong@production restored to its pre-incident configuration | nimbus (automation) |
+| 2026-11-19 03:15:11 UTC | Incident opened: Queue backlog is aging while the Lambda consumer has no invocations | nimbus |
+| 2026-11-19 03:15:12 UTC | orders-v2-mwmz936jig6@production turned off (kill switch) | nimbus (automation) |
+| 2026-11-19 03:15:12 UTC | Pipeline healthy again: incident recovered | nimbus |
+| 2026-11-19 03:15:13 UTC | orders-v2-mwmz936jig6@production restored to its pre-incident configuration | nimbus (automation) |
 
 ## Observations
 
-- Automation turned off orders-v2-mwlhfong@production 677 ms after the incident opened.
+- Automation turned off orders-v2-mwmz936jig6@production 661 ms after the incident opened.
 
 ## Follow-ups
 
-- [ ] Root cause of `consumer_stalled` on Orders async pipeline mwlhfong
+- [ ] Root cause of `consumer_stalled` on Orders async pipeline mwmz936jig6
 - [ ] Were detection thresholds right? (degraded windows before opening)
 - [ ] Should anything else be behind a kill switch?

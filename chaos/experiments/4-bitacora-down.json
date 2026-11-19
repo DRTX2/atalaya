@@ -1,0 +1,14 @@
+{
+  "name": "bitacora-down",
+  "title": "Bitácora is unreachable for the whole incident",
+  "hypothesis": "The learning step is never on the critical path: the incident is mitigated and recovered as usual, and after a DLQ replay Bitácora rebuilds the same, correctly ordered timeline from late, out-of-order deliveries.",
+  "faults": [{ "link": "hookrelay-bitacora", "type": "down", "at": "stall", "until": "end" }],
+  "checks": [
+    { "probe": "flagKilled", "withinSeconds": 10 },
+    { "probe": "delivered", "endpoint": "oncall", "event": "incident.opened", "withinSeconds": 20 },
+    { "probe": "flagRestored", "phase": "recovery", "withinSeconds": 10 },
+    { "probe": "deadLettered", "phase": "recovery", "endpoint": "bitacora", "event": "incident.recovered", "withinSeconds": 60 },
+    { "probe": "timeline", "phase": "after", "types": ["incident.opened", "flag.killed", "incident.recovered", "flag.restored"], "withinSeconds": 60 }
+  ],
+  "after": [{ "action": "replay", "endpoint": "bitacora" }]
+}

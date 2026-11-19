@@ -1,0 +1,17 @@
+{
+  "name": "atalaya-orders",
+  "private": true,
+  "type": "module",
+  "description": "The protected application: an orders service whose async checkout (v2) is guarded by a Flagship kill switch and watched by Nimbus.",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.700.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "hookrelay-slow",
+  "title": "Every call from Nimbus to Hookrelay takes 3 extra seconds",
+  "hypothesis": "Mitigation does not wait for notification: the kill switch lands as fast as usual and the notification arrives late but intact.",
+  "faults": [{ "link": "nimbus-hookrelay", "type": "latency", "ms": 3000, "at": "stall", "until": "end" }],
+  "checks": [
+    { "probe": "flagKilled", "withinSeconds": 5 },
+    { "probe": "delivered", "endpoint": "oncall", "event": "incident.opened", "withinSeconds": 40 },
+    { "probe": "flagRestored", "phase": "recovery", "withinSeconds": 10 },
+    { "probe": "delivered", "phase": "recovery", "endpoint": "oncall", "event": "incident.recovered", "withinSeconds": 40 }
+  ]
+}

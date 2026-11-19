@@ -1,0 +1,10 @@
+# Demo sizing: one API and one worker task, single-AZ database, one NAT (environment != production).
+environment       = "demo"
+region            = "us-east-1"
+db_instance_class = "db.t4g.micro"
+db_multi_az       = false
+redis_node_type   = "cache.t4g.micro"
+api_desired       = 1
+worker_desired    = 1
+worker_max        = 2
+certificate_arn   = ""

@@ -1,0 +1,14 @@
+{
+  "name": "flagship-unreachable",
+  "title": "Flagship is unreachable for the whole incident: the kill switch cannot be pulled",
+  "hypothesis": "When automation cannot mitigate, it says so: after its ~90 s retry budget Nimbus escalates, on-call and Bitácora receive incident.escalated, and the postmortem records that a human had to act.",
+  "faults": [{ "link": "nimbus-flagship", "type": "down", "at": "stall", "until": "end" }],
+  "maxSeconds": 300,
+  "checks": [
+    { "probe": "delivered", "endpoint": "oncall", "event": "incident.escalated", "withinSeconds": 150 },
+    { "probe": "delivered", "endpoint": "bitacora", "event": "incident.escalated", "withinSeconds": 170 },
+    { "probe": "timeline", "types": ["incident.opened", "incident.escalated"], "withinSeconds": 170 },
+    { "probe": "timeline", "phase": "recovery", "types": ["incident.opened", "incident.escalated", "incident.recovered"], "withinSeconds": 60 },
+    { "probe": "postmortemSays", "phase": "recovery", "text": "escalated to on-call", "withinSeconds": 10 }
+  ]
+}

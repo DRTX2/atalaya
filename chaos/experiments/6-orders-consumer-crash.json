@@ -1,0 +1,60 @@
+{
+  "name": "orders-consumer-crash",
+  "scenario": "orders",
+  "title": "The real orders consumer crashes under customer traffic",
+  "hypothesis": "Nimbus detects the stall from real queue metrics, the kill switch moves customers to the synchronous v1 checkout so no order fails, and everything is restored when the consumer is back.",
+  "faults": [
+    {
+      "service": "orders-consumer",
+      "type": "stop",
+      "at": "start",
+      "until": "recover"
+    }
+  ],
+  "detectWithinSeconds": 150,
+  "checks": [
+    {
+      "probe": "flagOff",
+      "withinSeconds": 15
+    },
+    {
+      "probe": "servedByV1",
+      "withinSeconds": 20
+    },
+    {
+      "probe": "ordersNeverFailed",
+      "withinSeconds": 5
+    },
+    {
+      "probe": "recovered",
+      "phase": "recovery",
+      "withinSeconds": 120
+    },
+    {
+      "probe": "flagRestored",
+      "phase": "recovery",
+      "withinSeconds": 130
+    },
+    {
+      "probe": "queueDrained",
+      "phase": "recovery",
+      "withinSeconds": 60
+    },
+    {
+      "probe": "ordersNeverFailed",
+      "phase": "recovery",
+      "withinSeconds": 5
+    },
+    {
+      "probe": "timeline",
+      "phase": "recovery",
+      "types": [
+        "incident.opened",
+        "flag.killed",
+        "incident.recovered",
+        "flag.restored"
+      ],
+      "withinSeconds": 60
+    }
+  ]
+}
